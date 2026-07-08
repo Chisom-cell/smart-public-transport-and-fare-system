@@ -1,0 +1,23 @@
+# Virtual Environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python Compilation and Runtime Cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Data Analytics & Matplotlib Outputs
+*.png
+*.jpg
+*.jpeg
+*.pdf
+*.csv
+*.json
+
+# Operating System Metadata
+.DS_Store
+Thumbs.db
