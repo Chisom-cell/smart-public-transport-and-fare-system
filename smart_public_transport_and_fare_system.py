@@ -3,49 +3,184 @@ Smart Public Transport & Fare System
 Project 02 - Week 3 Full Stack Project (Challenge Edition)
 TechRise Cohort 3
 
-FIX APPLIED: Demo mode now dynamically generates random passengers, 
-finds available trips, and picks random available seats so it can 
-be run as many times as you want until the system is completely full.
+MULTI-USER SECURITY UPDATE:
+- Replaced single password with a dynamic User Database (users_db.json).
+- Added First-Time Setup for the initial Admin account.
+- Added Login/Registration portal with hidden inputs and SHA-256 hashing.
+- Maintained the 3-strike security lockout rule.
 """
 
-import time                 # used forn delaying execution (time.sleep()) and measuring how long something takes (time.time())
-import functools              # Imports the functools module. This module helps when creating decorators.
-import json                   # Imports the JSON module. It allows the program to save and load data.
-import os                     # Imports the Operating System module. It helps the program interact with folders and files.
-import random                  # Imports the random module. It is used in Demo Mode. For randomizing demo bookings
-from datetime import datetime             # Imports only the datetime class from the datetime module. This is used to work with dates and times.
-from typing import List, Dict, Optional, Generator       # These help explain what kind of data a function expects or returns.
+import time                 
+import functools              
+import json                   
+import os                     
+import random                  
+import sys                    # Used to forcefully exit the program
+import getpass                # Used to hide password input on the screen
+import hashlib                # Used to encrypt/hash passwords
+
+from datetime import datetime             
+from typing import List, Dict, Optional, Generator       
 from contextlib import contextmanager
-from enum import Enum                     # Imports the Enum class. Enums are used to create fixed sets of values.
+from enum import Enum                     
 
 # Analytics dependencies
-import pandas as pd                 # It is used for creating Datafrrames, analyzing ticket data, exporting csv files.
-import matplotlib.pyplot as plt     # Imports Matplotlib's plotting module. plt is the standard alias. It is used to create graphs such as; revenue chart, passenger volume chart, fare efficiency chart.
-import matplotlib                     # Imports the main Matplotlib library.
-matplotlib.use('Agg')                   # This tells Matplotlib to use the Agg backend, Because the program saves charts as image files instead of displaying them on the screen. Because the program saves charts as image files instead of displaying them on the screen 
+import matplotlib             
+matplotlib.use('Agg')       # FIX: Must be called BEFORE importing pyplot
+import pandas as pd                 
+import matplotlib.pyplot as plt     
+
+
+# ==================== SECURITY & USER MANAGEMENT ====================
+
+invalid_input_count = 0
+MAX_INVALID_INPUTS = 3
+DATA_FILE = "transport_system_data.json"
+USERS_DB_FILE = "users_db.json"
+
+def handle_invalid_input(message="Invalid input!"):
+    """Tracks invalid inputs and shuts down the system if the limit is reached."""
+    global invalid_input_count
+    invalid_input_count += 1
+    print(f"❌ {message} ({invalid_input_count}/{MAX_INVALID_INPUTS} attempts)")
+    if invalid_input_count >= MAX_INVALID_INPUTS:
+        print("\n🚫 SECURITY ALERT: Too many invalid inputs. System is shutting down.")
+        sys.exit(1)
+
+def get_hidden_input(prompt=""):
+    """Gets input without showing characters on the screen."""
+    try:
+        return getpass.getpass(prompt)
+    except KeyboardInterrupt:
+        print("\nExiting...")
+        sys.exit(0)
+
+def hash_password(plain_text_password):
+    """Encrypts (hashes) a password using SHA-256."""
+    return hashlib.sha256(plain_text_password.encode('utf-8')).hexdigest()
+
+def load_users() -> dict:
+    """Loads the user database from JSON."""
+    if not os.path.exists(USERS_DB_FILE):
+        return {}
+    try:
+        with open(USERS_DB_FILE, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def save_users(users: dict):
+    """Saves the user database to JSON."""
+    with open(USERS_DB_FILE, "w") as f:
+        json.dump(users, f, indent=4)
+
+def register_user() -> bool:
+    """Handles the creation of a new user."""
+    print("\n" + "-"*40)
+    print(" 📝 CREATE NEW USER")
+    print("-"*40)
+    
+    username = input("Enter new username: ").strip()
+    if not username:
+        print("❌ Username cannot be empty.")
+        return False
+        
+    users = load_users()
+    if username in users:
+        print(f"❌ Username '{username}' already exists!")
+        return False
+        
+    pwd1 = get_hidden_input("Enter password: ")
+    pwd2 = get_hidden_input("Confirm password: ")
+    
+    if not pwd1:
+        print("❌ Password cannot be empty.")
+        return False
+    if pwd1 != pwd2:
+        print("❌ Passwords do not match.")
+        return False
+        
+    users[username] = hash_password(pwd1)
+    save_users(users)
+    print(f"✅ User '{username}' created successfully!")
+    return True
+
+def login_user(users: dict) -> bool:
+    """Handles user login."""
+    username = input("Username: ").strip()
+    pwd = get_hidden_input("Password: ")
+    
+    if username in users:
+        if users[username] == hash_password(pwd):
+            print(f"\n✅ Welcome, {username}! Access Granted.")
+            global invalid_input_count
+            invalid_input_count = 0 # Reset global app counter on successful login
+            return True
+            
+    print("❌ Invalid username or password.")
+    return False
+
+def authenticate() -> bool:
+    """Main authentication gate. Handles first-time setup and login."""
+    users = load_users()
+    
+    # 1. First Time Setup
+    if not users:
+        print("\n🔔 NO USERS FOUND IN DATABASE.")
+        print("Please create the first Admin account to continue.")
+        while not register_user():
+            pass # Keep asking until they successfully create one
+        users = load_users() # Reload to include the new user
+
+    # 2. Login Portal
+    login_attempts = 0
+    while login_attempts < MAX_INVALID_INPUTS:
+        print("\n" + "="*45)
+        print(" 🔐 SMART TRANSPORT: SECURE PORTAL")
+        print("="*45)
+        print("1. Login")
+        print("2. Create New Staff User")
+        print("="*45)
+        
+        choice = input("Select option (1/2): ").strip()
+        
+        if choice == '1':
+            if login_user(users):
+                return True
+            login_attempts += 1
+            print(f"⚠️ Attempts remaining: {MAX_INVALID_INPUTS - login_attempts}")
+        elif choice == '2':
+            if register_user():
+                users = load_users() # Reload to include the new user
+        else:
+            print("❌ Invalid option.")
+            login_attempts += 1
+            
+    print("\n🚫 SECURITY LOCKOUT: Too many failed login attempts. Shutting down.")
+    sys.exit(1)
 
 
 # ==================== CUSTOM EXCEPTIONS ====================
 
-class SeatUnavailableError(Exception):   # Because the program saves charts as image files instead of displaying them on the screen
+class SeatUnavailableError(Exception):   
     def __init__(self, seat_number: str, trip_id: str):
         self.seat_number = seat_number
         self.trip_id = trip_id
         super().__init__(f"Seat {seat_number} is unavailable for trip {trip_id}")
 
-class TripFullError(Exception):                 # This one is used when a trip has no more available seats.
+class TripFullError(Exception):                 
     def __init__(self, trip_id: str, vehicle_type: str):
         self.trip_id = trip_id
         self.vehicle_type = vehicle_type
         super().__init__(f"Trip {trip_id} ({vehicle_type}) is fully booked")
 
-class DriverUnavailableError(Exception):       # Creates an error for when a driver is already assigned to another trip. A driver shouldn't drive two trips at the same time.
+class DriverUnavailableError(Exception):       
     def __init__(self, driver_name: str, trip_time: datetime):
         self.driver_name = driver_name
         self.trip_time = trip_time
         super().__init__(f"Driver {driver_name} is already assigned at {trip_time}")
 
-class InvalidStopError(Exception):       # Creates an error for invalid bus stops
+class InvalidStopError(Exception):       
     def __init__(self, stop: str, route_name: str):
         self.stop = stop
         self.route_name = route_name
@@ -54,18 +189,18 @@ class InvalidStopError(Exception):       # Creates an error for invalid bus stop
 
 # ==================== DECORATORS ====================
 
-def timer(func):     # measures how long a function takes to execute.
-    @functools.wraps(func)    # a decorator whose job is to preserve the original function's information.
-    def wrapper(*args, **kwargs):  # This is the wrapper function. Whenever the decorated function is called, Python actually calls this wrapper instead. Using both *args and **kwargs allows the decorator to work with any function, regardless of how many arguments it takes.
-        start_time = time.time()   # Records the current time before the function starts.
-        result = func(*args, **kwargs)     # Now the original function is executed. This passes all the original arguments to the function.
-        end_time = time.time()    # Immediately after the function finishes, the current time is recorded again.
-        execution_time = (end_time - start_time) * 1000     # Calculates how long the function took to execute.
+def timer(func):     
+    @functools.wraps(func)    
+    def wrapper(*args, **kwargs):  
+        start_time = time.time()   
+        result = func(*args, **kwargs)     
+        end_time = time.time()    
+        execution_time = (end_time - start_time) * 1000     
         print(f"[TIMER] {func.__name__} executed in {execution_time:.4f} ms")
-        return result   # Returns whatever the original function returned. without this line, the decorated function would always return None.
-    return wrapper   # Instead of returning the original function, the decorator returns the wrapper.
+        return result   
+    return wrapper   
 
-def retry(times: int = 3):     # Unlike timer, this decorator accepts an argument.
+def retry(times: int = 3):     
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -569,8 +704,6 @@ class TransportAnalytics:
 
 # ==================== JSON DATA PERSISTENCE ====================
 
-DATA_FILE = "transport_system_data.json"
-
 def save_system_state(system: TransportSystem):
     data = {
         "counters": {"trip": Trip.trip_counter, "ticket": Ticket.ticket_counter},
@@ -634,45 +767,37 @@ def load_system_state(system: TransportSystem) -> bool:
 # ==================== DEMO MODE (AUTO-GENERATOR) ====================
 
 def generate_test_bookings(system: TransportSystem, batch_size: int = 5):
-    """
-    Dynamically generates random passengers, finds trips with available seats,
-    and books random stops. Can be run multiple times until the system is full.
-    """
     print(f"\n🎲 GENERATING {batch_size} TEST BOOKINGS FOR DEMO...\n")
     
-    # Name pools for generating random passengers
     first_names = ["Chinedu", "Fatima", "Emmanuel", "Blessing", "Yusuf", "Grace", "Ahmed", "Nneka", "Obinna", "Kemi", "Tunde", "Amaka"]
     last_names = ["Okafor", "Hassan", "Nwosu", "Ade", "Ibrahim", "Okoro", "Bello", "Eze", "Okeke", "Adebayo", "Bakare", "Uche"]
 
     booked_count = 0
     
-    # Keep generating until we hit the batch size or run out of seats
     while booked_count < batch_size:
-        # 1. Find trips that still have available seats
         available_trips = [trip for trip in system.trips if not trip.is_full]
         
         if not available_trips:
             print("⚠️  All trips are fully booked! Cannot generate more test bookings.")
             break
             
-        # 2. Pick a random trip that has space
         trip = random.choice(available_trips)
         available_seats = trip.get_available_seats()
         
         if not available_seats:
             continue
             
-        # 3. Pick a random available seat
         seat = random.choice(available_seats)
         
-        # 4. Pick random boarding and alighting stops
         stops = trip.route.all_stops
         if len(stops) < 2:
             continue
             
-        boarding, alighting = random.sample(stops, 2)
+        # FIX: Ensure boarding stop comes before alighting stop in the route
+        indices = sorted(random.sample(range(len(stops)), 2))
+        boarding = stops[indices[0]]
+        alighting = stops[indices[1]]
         
-        # 5. Generate a unique random passenger
         rand_first = random.choice(first_names)
         rand_last = random.choice(last_names)
         name = f"{rand_first} {rand_last}"
@@ -681,7 +806,6 @@ def generate_test_bookings(system: TransportSystem, batch_size: int = 5):
         
         passenger = system.find_or_create_passenger(name, phone, email)
         
-        # 6. Book the ticket
         try:
             distance = trip.route.calculate_segment_distance(boarding, alighting)
             fare = FareCalculator.calculate_fare(trip.vehicle, distance)
@@ -692,7 +816,6 @@ def generate_test_bookings(system: TransportSystem, batch_size: int = 5):
             print(f"✅ Booked: {passenger.name} - {trip.trip_id} ({boarding}↔{alighting}) - Seat {seat} - ₦{fare:,.2f}")
             booked_count += 1
         except Exception as e:
-            # If it fails for some reason, just skip and try the next loop
             pass
 
     save_system_state(system)
@@ -711,7 +834,8 @@ def display_menu():
     print("6. Generate Revenue Report")
     print("7. Export Data & Analytics")
     print("8. 🎲 Generate 5 Test Bookings (Demo Mode)")
-    print("9. Exit")
+    print("9. 👤 Add New Staff User") # NEW MENU OPTION
+    print("10. Exit")
     print("="*60)
 
 def setup_sample_data(system: TransportSystem, silent=False):
@@ -735,13 +859,11 @@ def setup_sample_data(system: TransportSystem, silent=False):
     
     today = datetime.now()
     
-    # Create forward trips
     system.create_trip(route1, bus1, driver1, today.replace(hour=8, minute=0), "forward")
     system.create_trip(route1, minivan1, driver2, today.replace(hour=10, minute=30), "forward")
     system.create_trip(route2, bus2, driver3, today.replace(hour=9, minute=0), "forward")
     system.create_trip(route3, taxi1, driver4, today.replace(hour=14, minute=0), "forward")
     
-    # Create reverse trips (bidirectional)
     system.create_trip(route1, bus1, driver1, today.replace(hour=16, minute=0), "reverse")
     system.create_trip(route1, minivan1, driver2, today.replace(hour=18, minute=30), "reverse")
     system.create_trip(route2, bus2, driver3, today.replace(hour=17, minute=0), "reverse")
@@ -781,16 +903,17 @@ def book_ticket_interactive(system: TransportSystem):
     try:
         trip_choice = int(input("Enter trip number: ")) - 1
         if trip_choice < 0 or trip_choice >= len(system.trips): 
-            print("Invalid trip choice"); return
+            handle_invalid_input("Invalid trip number.")
+            return
         trip = system.trips[trip_choice]
     except ValueError:
-        print("Invalid input. Please enter a number."); return
+        handle_invalid_input("Please enter a valid number for trip choice.")
+        return
     
     if trip.is_full: 
         print("❌ This trip is fully booked!"); return
     
     print(f"\nRoute stops: {' ↔ '.join(trip.route.all_stops)}")
-    print("(You can travel in either direction)")
     boarding = input("Boarding stop: ").strip().title()
     alighting = input("Alighting stop: ").strip().title()
     
@@ -823,6 +946,10 @@ def view_my_tickets(system: TransportSystem):
     print("\n🎫 VIEW MY TICKETS\n" + "-" * 60)
     phone = input("Enter phone number: ").strip()
     
+    if not phone:
+        handle_invalid_input("Phone number cannot be empty.")
+        return
+
     passenger = None
     for p in system.passengers:
         if p.phone == phone:
@@ -849,8 +976,12 @@ def view_fare_comparison():
         print(f"\nFare comparison for {distance} km:")
         for v_type, fare in comparison.items(): 
             print(f"  {v_type:25} ₦{fare:,.2f}")
+        
+        # Reset counter on successful valid input
+        global invalid_input_count
+        invalid_input_count = 0
     except ValueError: 
-        print("Invalid distance")
+        handle_invalid_input("Invalid distance. Please enter a number.")
 
 def generate_revenue_report(system: TransportSystem):
     print("\n📊 REVENUE REPORT\n" + "-" * 60)
@@ -874,40 +1005,51 @@ def run_analytics(system: TransportSystem):
 
 def main():
     print("\n" + "="*60 + "\n  SMART PUBLIC TRANSPORT & FARE SYSTEM\n  TechRise Cohort 3 - Project 02\n" + "="*60)
+    
+    # 1. Require Multi-User Authentication
+    if not authenticate():
+        return
+        
     system = TransportSystem("Abia State Transport")
     
-    # 1. ALWAYS initialize the base infrastructure
+    # 2. ALWAYS initialize the base infrastructure
     setup_sample_data(system, silent=True)
     
-    # 2. Load saved dynamic state (Passengers, Bookings, Counters)
+    # 3. Load saved dynamic state (Passengers, Bookings, Counters)
     load_system_state(system)
     
     while True:
         display_menu()
         try:
-            choice = input("Enter your choice (1-9): ").strip()
-            if choice == "1": 
-                view_routes(system)
-            elif choice == "2": 
-                view_trips(system)
-            elif choice == "3":
-                book_ticket_interactive(system)
-                save_system_state(system)
-            elif choice == "4": 
-                view_my_tickets(system)
-            elif choice == "5": 
-                view_fare_comparison()
-            elif choice == "6": 
-                generate_revenue_report(system)
-            elif choice == "7": 
-                run_analytics(system)
-            elif choice == "8": 
-                generate_test_bookings(system, batch_size=5)
-            elif choice == "9":
-                print("\n👋 Thank you for using Smart Transport System!\nSafe travels! 🚌\n"); 
-                break
-            else: 
-                print("❌ Invalid choice. Please enter 1-9")
+            choice = input("Enter your choice (1-10): ").strip()
+            if choice in [str(i) for i in range(1, 11)]:
+                global invalid_input_count
+                invalid_input_count = 0  # Reset counter on valid menu choice
+                
+                if choice == "1": 
+                    view_routes(system)
+                elif choice == "2": 
+                    view_trips(system)
+                elif choice == "3":
+                    book_ticket_interactive(system)
+                    save_system_state(system)
+                elif choice == "4": 
+                    view_my_tickets(system)
+                elif choice == "5": 
+                    view_fare_comparison()
+                elif choice == "6": 
+                    generate_revenue_report(system)
+                elif choice == "7": 
+                    run_analytics(system)
+                elif choice == "8": 
+                    generate_test_bookings(system, batch_size=5)
+                elif choice == "9": 
+                    register_user() # Add new user
+                elif choice == "10":
+                    print("\n👋 Thank you for using Smart Transport System!\nSafe travels! 🚌\n"); 
+                    break
+            else:
+                handle_invalid_input("Invalid choice. Please enter 1-10")
         except KeyboardInterrupt:
             print("\n\n Exiting system..."); 
             break
