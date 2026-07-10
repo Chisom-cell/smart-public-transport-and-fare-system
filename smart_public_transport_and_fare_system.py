@@ -888,8 +888,19 @@ def book_ticket_interactive(system: TransportSystem):
     print("\n🎫 BOOK A TICKET\n" + "-" * 60)
     
     print("\nEnter passenger details:")
+    
+    # VALIDATION: Name must not contain numbers
     name = input("Full name: ").strip().title()
+    if not name or any(char.isdigit() for char in name):
+        handle_invalid_input("Invalid name. Name cannot contain numbers.")
+        return
+        
+    # VALIDATION: Phone must be exactly 11 digits
     phone = input("Phone number: ").strip()
+    if not phone.isdigit() or len(phone) != 11:
+        handle_invalid_input("Invalid phone number. Must be exactly 11 digits.")
+        return
+        
     email = input("Email (optional): ").strip()
     
     passenger = system.find_or_create_passenger(name, phone, email)
@@ -946,8 +957,9 @@ def view_my_tickets(system: TransportSystem):
     print("\n🎫 VIEW MY TICKETS\n" + "-" * 60)
     phone = input("Enter phone number: ").strip()
     
-    if not phone:
-        handle_invalid_input("Phone number cannot be empty.")
+    # VALIDATION: Phone must be exactly 11 digits
+    if not phone.isdigit() or len(phone) != 11:
+        handle_invalid_input("Invalid phone number. Must be exactly 11 digits.")
         return
 
     passenger = None
